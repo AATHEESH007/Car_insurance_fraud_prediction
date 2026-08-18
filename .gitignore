@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Env & secrets
+.env
+*.env
+
+# DB & uploads
+*.db
+*.sqlite
+backend/uploads/
+
+# Model weights (large binary)
+backend/model/weights/*.pth
+
+# Node
+node_modules/
+frontend/dist/
+
+# Misc
+.DS_Store
+*.log
+.pytest_cache/
+.coverage
+htmlcov/
