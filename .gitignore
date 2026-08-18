@@ -15,8 +15,6 @@ env/
 *.sqlite
 backend/uploads/
 
-# Model weights (large binary)
-backend/model/weights/*.pth
 
 # Node
 node_modules/

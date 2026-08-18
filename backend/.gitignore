@@ -10,7 +10,7 @@ build/
 venv/
 env/
 uploads/
-model/weights/*.pth
+
 *.db
 *.sqlite
 .pytest_cache/
