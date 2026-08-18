@@ -1,0 +1,1 @@
+backend/model/weights/best_efficientnetv2_s.pth filter=lfs diff=lfs merge=lfs -text
