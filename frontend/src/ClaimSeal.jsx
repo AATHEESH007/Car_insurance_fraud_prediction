@@ -34,6 +34,7 @@ function mapClaim(c, userName) {
     ? +(Math.max(c.fraud_probability, c.non_fraud_probability) * 100).toFixed(1)
     : null;
   const approvalPct = c.non_fraud_probability != null ? Math.round(c.non_fraud_probability * 100) : null;
+  const fraudProbability = c.fraud_probability != null ? +(c.fraud_probability * 100).toFixed(1) : null;
   return {
     id: c.id,
     ref: c.claim_reference || c.id,
@@ -50,6 +51,7 @@ function mapClaim(c, userName) {
     isFraud,
     accuracy,
     approvalPct,
+    fraudProbability,
     riskLevel: c.risk_level || null,
     recommendation: c.recommendation || null,
   };
@@ -122,7 +124,8 @@ const api = {
     const isFraud = p.prediction === "Fraud";
     const accuracy = +(Math.max(p.fraud_probability ?? 0, p.non_fraud_probability ?? 0) * 100).toFixed(1);
     const approvalPct = Math.round((p.non_fraud_probability ?? 0) * 100);
-    return { isFraud, accuracy, approvalPct, riskLevel: p.risk_level, recommendation: p.recommendation };
+    const fraudProbability = +((p.fraud_probability ?? 0) * 100).toFixed(1);
+    return { isFraud, accuracy, approvalPct, fraudProbability, riskLevel: p.risk_level, recommendation: p.recommendation };
   },
 
   updateClaimStatus: async (claimId, status) => {
@@ -528,7 +531,7 @@ function ClaimDetailModal({ claimId, onClose, onStatusChanged, isAdmin }) {
   useEffect(() => {
     let alive = true;
     api.getClaimDetail(claimId)
-      .then(c => { if (alive) { setClaim(c); if (c.isFraud !== null) setDetectResult({ isFraud: c.isFraud, accuracy: c.accuracy, approvalPct: c.approvalPct, riskLevel: c.riskLevel, recommendation: c.recommendation }); } })
+      .then(c => { if (alive) { setClaim(c); if (c.isFraud !== null) setDetectResult({ isFraud: c.isFraud, accuracy: c.accuracy, approvalPct: c.approvalPct, fraudProbability: c.fraudProbability, riskLevel: c.riskLevel, recommendation: c.recommendation }); } })
       .catch(() => { if (alive) push("Failed to load claim.", "error"); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
@@ -624,10 +627,10 @@ function ClaimDetailModal({ claimId, onClose, onStatusChanged, isAdmin }) {
                       <div>
                         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
                           <span style={{ fontFamily: "Inter, sans-serif", fontSize: 12.5, color: C.textSec }}>Fraud probability</span>
-                          <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 700, color: detectResult.isFraud ? C.red : C.green }}>{detectResult.accuracy ?? 0}%</span>
+                          <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 700, color: (detectResult.fraudProbability ?? 0) > 70 ? C.red : (detectResult.fraudProbability ?? 0) > 40 ? C.amber : C.green }}>{detectResult.fraudProbability ?? 0}%</span>
                         </div>
                         <div style={{ height: 8, background: C.borderLight, borderRadius: 4, overflow: "hidden" }}>
-                          <div style={{ height: "100%", width: `${detectResult.accuracy ?? 0}%`, background: (detectResult.accuracy ?? 0) > 70 ? C.red : (detectResult.accuracy ?? 0) > 40 ? C.amber : C.green, borderRadius: 4, transition: "width 0.6s ease" }} />
+                          <div style={{ height: "100%", width: `${detectResult.fraudProbability ?? 0}%`, background: (detectResult.fraudProbability ?? 0) > 70 ? C.red : (detectResult.fraudProbability ?? 0) > 40 ? C.amber : C.green, borderRadius: 4, transition: "width 0.6s ease" }} />
                         </div>
                       </div>
                       {detectResult.recommendation && (
