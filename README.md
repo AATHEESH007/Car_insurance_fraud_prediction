@@ -264,11 +264,10 @@ pytest backend/tests/ -v --cov=backend/app
 
 ## 🚢 Deployment
 
-### Production Docker Deployment
+### Production WSGI Server
 ```bash
 cd backend
-docker build -t insurance-fraud-backend:latest .
-docker run -p 8000:8000 --env-file .env insurance-fraud-backend:latest
+gunicorn -c gunicorn.conf.py run:app
 ```
 
 ### Cloud Platforms
