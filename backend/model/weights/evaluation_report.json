@@ -1,0 +1,45 @@
+{
+  "test_loss": 0.10574719767700276,
+  "total_samples": 1139,
+  "accuracy": 0.9877085162423178,
+  "balanced_accuracy": 0.9014084507042254,
+  "mcc": 0.8901849538366601,
+  "roc_auc": 0.9646568549876019,
+  "target_class": "Fraud",
+  "confusion_matrix": {
+    "TP": 57,
+    "TN": 1068,
+    "FP": 0,
+    "FN": 14
+  },
+  "binary_metrics": {
+    "precision": 1.0,
+    "recall_sensitivity": 0.8028169014084507,
+    "specificity": 1.0,
+    "f1_score": 0.890625,
+    "mcc": 0.8901849538366601,
+    "roc_auc": 0.9646568549876019
+  },
+  "per_class_metrics": {
+    "Fraud": {
+      "samples": 71,
+      "true_positives": 57,
+      "true_negatives": 1068,
+      "false_positives": 0,
+      "false_negatives": 14,
+      "precision": 1.0,
+      "recall": 0.8028169014084507,
+      "f1_score": 0.890625
+    },
+    "Non-Fraud": {
+      "samples": 1068,
+      "true_positives": 1068,
+      "true_negatives": 57,
+      "false_positives": 14,
+      "false_negatives": 0,
+      "precision": 0.9870609981515711,
+      "recall": 1.0,
+      "f1_score": 0.9934883720930232
+    }
+  }
+}
