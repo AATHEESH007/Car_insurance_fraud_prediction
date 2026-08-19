@@ -98,13 +98,10 @@ const api = {
   },
 
   getPendingClaims: async () => {
-    const data = await apiFetch("/admin/claims?status=SUBMITTED&per_page=100");
-    const claims = data.claims || [];
-    let analyzed = [];
-    try { const d2 = await apiFetch("/admin/claims?status=ANALYZED&per_page=100"); analyzed = d2.claims || []; } catch (_) {}
-    const all = [...claims, ...analyzed];
+    const data = await apiFetch("/admin/claims?per_page=100");
+    const claims = (data.claims || []).filter(c => c.status !== "APPROVED" && c.status !== "REJECTED");
     const userCache = {};
-    const withNames = await Promise.all(all.map(async (c) => {
+    const withNames = await Promise.all(claims.map(async (c) => {
       if (!userCache[c.user_id]) {
         try { const ud = await apiFetch("/admin/users?per_page=100"); (ud.users || []).forEach(u => { userCache[u.id] = u.name; }); } catch (_) {}
       }
@@ -133,6 +130,21 @@ const api = {
     const backendStatus = statusMap[status] || status.toUpperCase();
     await apiFetch(`/admin/claims/${claimId}/status`, { method: "PATCH", body: JSON.stringify({ status: backendStatus }) });
     return { success: true };
+  },
+
+  getGradcam: async (claimId) => {
+    const data = await apiFetch(`/admin/claims/${claimId}/gradcam`);
+    return { originalUrl: data.original_url, gradcamUrl: data.gradcam_url };
+  },
+
+  clearGradcamCache: async (claimId) => {
+    const res = await fetch(`${BASE}/admin/claims/${claimId}/gradcam/cache`, {
+      method: "DELETE",
+      headers: AUTH_TOKEN_HEADER(),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(json?.error?.message || `HTTP ${res.status}`);
+    return json.data ?? json;
   },
 
   getAnalytics: async () => {
@@ -327,10 +339,10 @@ function Modal({ open, onClose, title, width = 700, children, footer }) {
   );
 }
 
-function ConfirmDialog({ open, onClose, onConfirm, title, message, confirmLabel = "Confirm", loading }) {
+function ConfirmDialog({ open, onClose, onConfirm, title, message, confirmLabel = "Confirm", variant = "danger", loading }) {
   return (
     <Modal open={open} onClose={onClose} title={title} width={420}
-      footer={<><Btn variant="secondary" onClick={onClose} disabled={loading}>Cancel</Btn><Btn variant="danger" onClick={onConfirm} loading={loading}>{confirmLabel}</Btn></>}>
+      footer={<><Btn variant="secondary" onClick={onClose} disabled={loading}>Cancel</Btn><Btn variant={variant} onClick={onConfirm} loading={loading}>{confirmLabel}</Btn></>}>
       <p style={{ fontFamily: "Inter, sans-serif", fontSize: 14, color: C.textSec, margin: 0, lineHeight: 1.7 }}>{message}</p>
     </Modal>
   );
@@ -449,9 +461,10 @@ function ClaimThumb({ imageUrl, size = 44 }) {
 /* ─── Fraud flag card (admin review) ─────────────────────────── */
 function FraudClaimCard({ claim, onReview, tone }) {
   const isFraud = tone === "fraud";
-  const pct = claim.accuracy ?? 0;
-  const barColor = isFraud ? C.red : C.green;
-  const cardBg = isFraud ? "#FFF8F8" : "#F6FFF8";
+  const pct = claim.accuracy ?? (claim.fraudProbability ?? 0);
+  const isPending = claim.isFraud === null || claim.isFraud === undefined;
+  const barColor = isPending ? C.amber : isFraud ? C.red : C.green;
+  const cardBg = isPending ? "#FFFDF5" : isFraud ? "#FFF8F8" : "#F6FFF8";
   const [hovered, setHovered] = useState(false);
 
   return (
@@ -459,7 +472,7 @@ function FraudClaimCard({ claim, onReview, tone }) {
       onClick={() => onReview(claim.id)}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 18px", cursor: "pointer", background: hovered ? (isFraud ? "#FFF0F0" : "#EDFBF0") : cardBg, borderBottom: `1px solid ${isFraud ? "#FCE4E4" : "#D4F4DE"}`, transition: "background 0.15s" }}>
+      style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 18px", cursor: "pointer", background: hovered ? (isPending ? "#FFF9E6" : isFraud ? "#FFF0F0" : "#EDFBF0") : cardBg, borderBottom: `1px solid ${isPending ? "#FEEBC8" : isFraud ? "#FCE4E4" : "#D4F4DE"}`, transition: "background 0.15s" }}>
       <ClaimThumb imageUrl={claim.imageUrl} size={48} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12.5, fontWeight: 700, color: C.text, marginBottom: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{claim.ref}</div>
@@ -467,10 +480,10 @@ function FraudClaimCard({ claim, onReview, tone }) {
           {claim.policyNumber || "—"} · ₹{Number(claim.estimatedCost || 0).toLocaleString("en-IN")}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div style={{ flex: 1, height: 5, background: isFraud ? "#FECACA" : "#BBF7D0", borderRadius: 3, overflow: "hidden" }}>
-            <div style={{ height: "100%", width: `${pct}%`, background: barColor, borderRadius: 3 }} />
+          <div style={{ flex: 1, height: 5, background: isPending ? "#FEF3C7" : isFraud ? "#FECACA" : "#BBF7D0", borderRadius: 3, overflow: "hidden" }}>
+            <div style={{ height: "100%", width: `${pct || (isPending ? 100 : 0)}%`, background: barColor, borderRadius: 3 }} />
           </div>
-          <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, fontWeight: 700, color: barColor, minWidth: 36 }}>{pct}%</span>
+          <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, fontWeight: 700, color: barColor, minWidth: 36 }}>{pct > 0 ? `${pct}%` : isPending ? "Pending" : "0%"}</span>
         </div>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 6, color: C.textMuted }}>
@@ -517,6 +530,184 @@ function FlagColumn({ tone, title, subtitle, claims, onReview, onApproveAll, app
   );
 }
 
+/* ─── GradCAM panel (admin) ──────────────────────────────────── */
+function GradCamPanel({ claimId, hasImage }) {
+  const push = useToast();
+  const [gradcamData, setGradcamData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [zoomSrc, setZoomSrc] = useState(null);
+
+  const fetchGradcam = useCallback(async (force = false) => {
+    if (!hasImage) return;
+    setLoading(true);
+    try {
+      if (force) await api.clearGradcamCache(claimId);
+      const data = await api.getGradcam(claimId);
+      setGradcamData(data);
+    } catch (e) {
+      push(e.message?.includes("MODEL_UNAVAILABLE") || e.message?.includes("503")
+        ? "Model not loaded — Grad-CAM unavailable."
+        : "Failed to generate Grad-CAM heatmap.", "error");
+    } finally {
+      setLoading(false);
+    }
+  }, [claimId, hasImage]);
+
+  useEffect(() => { fetchGradcam(); }, [fetchGradcam]);
+
+  if (!hasImage) return null;
+
+  const imgBox = (src, label, accentColor) => (
+    <div style={{ flex: 1, minWidth: 0 }}>
+      <div
+        onClick={() => src && setZoomSrc(src)}
+        style={{
+          borderRadius: 8, overflow: "hidden",
+          border: `2px solid ${accentColor}`,
+          cursor: src ? "zoom-in" : "default",
+          background: C.bg,
+          minHeight: 160,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          position: "relative",
+          transition: "box-shadow 0.2s",
+          boxShadow: src ? `0 4px 18px ${accentColor}33` : "none",
+        }}
+        onMouseEnter={e => { if (src) e.currentTarget.style.boxShadow = `0 6px 24px ${accentColor}55`; }}
+        onMouseLeave={e => { e.currentTarget.style.boxShadow = src ? `0 4px 18px ${accentColor}33` : "none"; }}
+      >
+        {src ? (
+          <img src={src} alt={label} style={{ width: "100%", height: 165, objectFit: "cover", display: "block" }} />
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, padding: 20 }}>
+            <Spinner size={20} color={C.textMuted} />
+          </div>
+        )}
+        {src && (
+          <div style={{
+            position: "absolute", bottom: 6, right: 6,
+            background: "rgba(13,27,42,0.62)", color: "#FFF",
+            fontSize: 10, padding: "2px 7px", borderRadius: 4,
+            fontFamily: "Inter, sans-serif",
+          }}>Click to enlarge</div>
+        )}
+      </div>
+      <p style={{
+        fontFamily: "Inter, sans-serif", fontSize: 11, fontWeight: 700,
+        color: accentColor, textAlign: "center", margin: "7px 0 0",
+        textTransform: "uppercase", letterSpacing: "0.08em",
+      }}>{label}</p>
+    </div>
+  );
+
+  return (
+    <>
+      <div style={{
+        marginTop: 4,
+        borderRadius: 10,
+        background: "linear-gradient(135deg, #0D1B2A08 0%, #0E749008 100%)",
+        border: `1px solid ${C.teal}44`,
+        padding: "14px 16px",
+      }}>
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{
+              width: 28, height: 28, borderRadius: 7,
+              background: `${C.teal}22`,
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.teal} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/>
+                <line x1="21.17" y1="8" x2="11.99" y2="8"/>
+                <line x1="3.95" y1="6.06" x2="8.54" y2="14"/>
+                <line x1="10.88" y1="21.94" x2="15.46" y2="14"/>
+              </svg>
+            </div>
+            <div>
+              <div style={{ fontFamily: "Inter, sans-serif", fontSize: 12, fontWeight: 800, color: C.teal, letterSpacing: "0.06em", textTransform: "uppercase" }}>Grad-CAM Explainability</div>
+              <div style={{ fontFamily: "Inter, sans-serif", fontSize: 10.5, color: C.textMuted }}>Model attention heatmap</div>
+            </div>
+          </div>
+          <Btn
+            variant="ghost" size="sm"
+            onClick={() => fetchGradcam(true)}
+            disabled={loading}
+            style={{ borderColor: `${C.teal}55`, color: C.teal }}
+          >
+            <RefreshCw size={11} />
+            {loading ? "Generating…" : "Regenerate"}
+          </Btn>
+        </div>
+
+        {/* Side-by-side images */}
+        {loading && !gradcamData ? (
+          <div style={{
+            display: "flex", alignItems: "center", justifyContent: "center",
+            gap: 10, height: 100,
+            color: C.textSec, fontFamily: "Inter, sans-serif", fontSize: 13,
+          }}>
+            <Spinner size={16} color={C.teal} /> Generating heatmap…
+          </div>
+        ) : gradcamData ? (
+          <div style={{ display: "flex", gap: 12 }}>
+            {imgBox(gradcamData.originalUrl, "Original", C.navy)}
+            {imgBox(gradcamData.gradcamUrl, "Grad-CAM Heatmap", C.teal)}
+          </div>
+        ) : (
+          <div style={{
+            display: "flex", flexDirection: "column", alignItems: "center",
+            gap: 8, padding: "18px 0",
+          }}>
+            <p style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: C.textMuted, margin: 0 }}>
+              Heatmap unavailable. Model may not be loaded.
+            </p>
+          </div>
+        )}
+
+        {/* Legend */}
+        {gradcamData && !loading && (
+          <div style={{
+            marginTop: 12, padding: "9px 12px",
+            background: `${C.teal}0D`, borderRadius: 7,
+            border: `1px solid ${C.teal}33`,
+            display: "flex", alignItems: "flex-start", gap: 8,
+          }}>
+            <Info size={13} color={C.teal} style={{ flexShrink: 0, marginTop: 1 }} />
+            <p style={{ fontFamily: "Inter, sans-serif", fontSize: 11.5, color: C.textSec, margin: 0, lineHeight: 1.6 }}>
+              <strong style={{ color: C.teal }}>Red/warm areas</strong> indicate regions the model focused on when making its prediction.
+              Verify these align with actual vehicle damage zones.
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Zoom lightbox */}
+      {zoomSrc && (
+        <div
+          onClick={() => setZoomSrc(null)}
+          style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.92)",
+            zIndex: 3000, display: "flex", alignItems: "center", justifyContent: "center",
+            cursor: "zoom-out",
+          }}
+        >
+          <img src={zoomSrc} alt="Enlarged" style={{ maxWidth: "88vw", maxHeight: "88vh", objectFit: "contain", borderRadius: 10, boxShadow: "0 0 60px rgba(0,0,0,0.8)" }} />
+          <button
+            onClick={() => setZoomSrc(null)}
+            style={{
+              position: "absolute", top: 20, right: 20, background: "rgba(255,255,255,0.12)",
+              border: "1px solid rgba(255,255,255,0.2)", borderRadius: 8, color: "#FFF",
+              cursor: "pointer", padding: "7px 10px", display: "flex", alignItems: "center",
+            }}
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
+    </>
+  );
+}
+
 /* ─── Claim detail modal ─────────────────────────────────────── */
 function ClaimDetailModal({ claimId, onClose, onStatusChanged, isAdmin }) {
   const push = useToast();
@@ -558,97 +749,105 @@ function ClaimDetailModal({ claimId, onClose, onStatusChanged, isAdmin }) {
   const footer = isAdmin && !loading && claim ? (
     <>
       <Btn variant="secondary" onClick={onClose}>Close</Btn>
-      <Btn variant="success" onClick={() => setConfirmAction("Approved")} loading={actionLoading === "Approved"} disabled={!!actionLoading}><CheckCircle2 size={13} /> Approve</Btn>
-      <Btn variant="ghost" onClick={() => act("Under Review")} loading={actionLoading === "Under Review"} disabled={!!actionLoading}><Clock size={13} /> Under Review</Btn>
       <Btn variant="danger" onClick={() => setConfirmAction("Rejected")} loading={actionLoading === "Rejected"} disabled={!!actionLoading}><XCircle size={13} /> Reject</Btn>
-      <Btn variant="danger" onClick={() => setConfirmAction("Escalated")} loading={actionLoading === "Escalated"} disabled={!!actionLoading}><AlertOctagon size={13} /> Escalate</Btn>
+      <Btn variant="success" onClick={() => setConfirmAction("Approved")} loading={actionLoading === "Approved"} disabled={!!actionLoading}><CheckCircle2 size={13} /> Approve</Btn>
     </>
   ) : <Btn variant="secondary" onClick={onClose}>Close</Btn>;
 
   return (
     <>
-      <Modal open onClose={onClose} title={loading ? "Loading…" : `Claim — ${claim?.ref}`} width={840} footer={footer}>
+      <Modal open onClose={onClose} title={loading ? "Loading…" : `Claim — ${claim?.ref}`} width={900} footer={footer}>
         {loading ? (
           <div style={{ display: "flex", justifyContent: "center", padding: 48 }}><Spinner size={26} color={C.navy} /></div>
         ) : claim ? (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }} className="detail-grid">
-            {/* Left */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
-              <Section title="Claimant & Policy">
-                <Row label="Claimant" value={claim.claimantName} />
-                <Row label="Policy / Vehicle No." value={claim.policyNumber} mono />
-                <Row label="Vehicle" value={[claim.vehicleModel, claim.vehicleYear].filter(Boolean).join(" · ") || "—"} />
-              </Section>
-              <Section title="Incident">
-                <Row label="Date" value={claim.incidentDate} />
-                <Row label="Claim Amount" value={claim.estimatedCost ? `₹${Number(claim.estimatedCost).toLocaleString("en-IN")}` : "—"} mono />
-                <Row label="Status" value={<StatusBadge status={claim.status} />} />
-              </Section>
-              <Section title="Description">
-                <p style={{ fontFamily: "Inter, sans-serif", fontSize: 13.5, color: C.textSec, margin: 0, lineHeight: 1.65 }}>{claim.description || "—"}</p>
-              </Section>
-            </div>
-            {/* Right */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-              <Section title="Damage Image">
-                {claim.imageUrl ? (
-                  <div style={{ borderRadius: 8, overflow: "hidden", border: `1px solid ${C.border}`, cursor: "zoom-in", position: "relative" }} onClick={() => setImageZoom(true)}>
-                    <img src={claim.imageUrl} alt="Damage" style={{ width: "100%", height: 210, objectFit: "cover", display: "block" }} />
-                    <div style={{ position: "absolute", bottom: 8, right: 8, background: "rgba(13,27,42,0.6)", color: "#FFF", fontSize: 11, padding: "3px 8px", borderRadius: 4, fontFamily: "Inter, sans-serif" }}>Click to enlarge</div>
-                  </div>
-                ) : (
-                  <div style={{ height: 160, border: `1.5px dashed ${C.border}`, borderRadius: 8, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, background: C.bg }}>
-                    <Car size={30} color={C.textMuted} />
-                    <span style={{ fontFamily: "Inter, sans-serif", fontSize: 12.5, color: C.textMuted }}>No image uploaded</span>
-                  </div>
-                )}
-              </Section>
-              {isAdmin && (
-                <Section title="AI Fraud Analysis">
-                  <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
-                    <Btn variant="ghost" size="sm" onClick={runDetection} disabled={detecting}><RefreshCw size={11} /> Re-analyze</Btn>
-                  </div>
-                  {detecting ? (
-                    <div style={{ display: "flex", alignItems: "center", gap: 10, color: C.textSec, fontFamily: "Inter, sans-serif", fontSize: 13.5, padding: "12px 0" }}>
-                      <Spinner size={16} color={C.navy} /> Analyzing image…
-                    </div>
-                  ) : detectResult ? (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                        <div style={{ padding: "12px 14px", borderRadius: 8, background: detectResult.isFraud ? C.redBg : C.greenBg, border: `1px solid ${detectResult.isFraud ? C.redBorder : C.greenBorder}` }}>
-                          <div style={{ fontFamily: "Inter, sans-serif", fontSize: 10.5, fontWeight: 700, color: detectResult.isFraud ? C.redDeep : C.greenDeep, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Prediction</div>
-                          <div style={{ fontFamily: "Inter, sans-serif", fontSize: 15, fontWeight: 800, color: detectResult.isFraud ? C.red : C.green }}>{detectResult.isFraud ? "Potential Fraud" : "Likely Genuine"}</div>
-                        </div>
-                        <div style={{ padding: "12px 14px", borderRadius: 8, background: C.bg, border: `1px solid ${C.border}` }}>
-                          <div style={{ fontFamily: "Inter, sans-serif", fontSize: 10.5, fontWeight: 700, color: C.textMuted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Risk Level</div>
-                          <RiskBadge risk={detectResult.riskLevel} />
-                        </div>
-                      </div>
-                      <div>
-                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                          <span style={{ fontFamily: "Inter, sans-serif", fontSize: 12.5, color: C.textSec }}>Fraud probability</span>
-                          <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 700, color: (detectResult.fraudProbability ?? 0) > 70 ? C.red : (detectResult.fraudProbability ?? 0) > 40 ? C.amber : C.green }}>{detectResult.fraudProbability ?? 0}%</span>
-                        </div>
-                        <div style={{ height: 8, background: C.borderLight, borderRadius: 4, overflow: "hidden" }}>
-                          <div style={{ height: "100%", width: `${detectResult.fraudProbability ?? 0}%`, background: (detectResult.fraudProbability ?? 0) > 70 ? C.red : (detectResult.fraudProbability ?? 0) > 40 ? C.amber : C.green, borderRadius: 4, transition: "width 0.6s ease" }} />
-                        </div>
-                      </div>
-                      {detectResult.recommendation && (
-                        <div style={{ display: "flex", gap: 8, padding: "10px 12px", background: C.blueBg, borderRadius: 7, border: `1px solid ${C.blueBorder}` }}>
-                          <Info size={14} color={C.blue} style={{ flexShrink: 0, marginTop: 1 }} />
-                          <p style={{ fontFamily: "Inter, sans-serif", fontSize: 12.5, color: C.textSec, margin: 0, lineHeight: 1.55 }}>{detectResult.recommendation}</p>
-                        </div>
-                      )}
+          <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }} className="detail-grid">
+              {/* Left */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
+                <Section title="Claimant & Policy">
+                  <Row label="Claimant" value={claim.claimantName} />
+                  <Row label="Policy / Vehicle No." value={claim.policyNumber} mono />
+                  <Row label="Vehicle" value={[claim.vehicleModel, claim.vehicleYear].filter(Boolean).join(" · ") || "—"} />
+                </Section>
+                <Section title="Incident">
+                  <Row label="Date" value={claim.incidentDate} />
+                  <Row label="Claim Amount" value={claim.estimatedCost ? `₹${Number(claim.estimatedCost).toLocaleString("en-IN")}` : "—"} mono />
+                  <Row label="Status" value={<StatusBadge status={claim.status} />} />
+                </Section>
+                <Section title="Description">
+                  <p style={{ fontFamily: "Inter, sans-serif", fontSize: 13.5, color: C.textSec, margin: 0, lineHeight: 1.65 }}>{claim.description || "—"}</p>
+                </Section>
+              </div>
+              {/* Right */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+                <Section title="Damage Image">
+                  {claim.imageUrl ? (
+                    <div style={{ borderRadius: 8, overflow: "hidden", border: `1px solid ${C.border}`, cursor: "zoom-in", position: "relative" }} onClick={() => setImageZoom(true)}>
+                      <img src={claim.imageUrl} alt="Damage" style={{ width: "100%", height: 210, objectFit: "cover", display: "block" }} />
+                      <div style={{ position: "absolute", bottom: 8, right: 8, background: "rgba(13,27,42,0.6)", color: "#FFF", fontSize: 11, padding: "3px 8px", borderRadius: 4, fontFamily: "Inter, sans-serif" }}>Click to enlarge</div>
                     </div>
                   ) : (
-                    <div>
-                      <p style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: C.textMuted, margin: "0 0 10px" }}>No analysis available.</p>
-                      <Btn variant="primary" size="sm" onClick={runDetection}>Run Analysis</Btn>
+                    <div style={{ height: 160, border: `1.5px dashed ${C.border}`, borderRadius: 8, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, background: C.bg }}>
+                      <Car size={30} color={C.textMuted} />
+                      <span style={{ fontFamily: "Inter, sans-serif", fontSize: 12.5, color: C.textMuted }}>No image uploaded</span>
                     </div>
                   )}
                 </Section>
-              )}
+                {isAdmin && (
+                  <Section title="AI Fraud Analysis">
+                    <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+                      <Btn variant="ghost" size="sm" onClick={runDetection} disabled={detecting}><RefreshCw size={11} /> Re-analyze</Btn>
+                    </div>
+                    {detecting ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, color: C.textSec, fontFamily: "Inter, sans-serif", fontSize: 13.5, padding: "12px 0" }}>
+                        <Spinner size={16} color={C.navy} /> Analyzing image…
+                      </div>
+                    ) : detectResult ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                          <div style={{ padding: "12px 14px", borderRadius: 8, background: detectResult.isFraud ? C.redBg : C.greenBg, border: `1px solid ${detectResult.isFraud ? C.redBorder : C.greenBorder}` }}>
+                            <div style={{ fontFamily: "Inter, sans-serif", fontSize: 10.5, fontWeight: 700, color: detectResult.isFraud ? C.redDeep : C.greenDeep, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Prediction</div>
+                            <div style={{ fontFamily: "Inter, sans-serif", fontSize: 15, fontWeight: 800, color: detectResult.isFraud ? C.red : C.green }}>{detectResult.isFraud ? "Potential Fraud" : "Likely Genuine"}</div>
+                          </div>
+                          <div style={{ padding: "12px 14px", borderRadius: 8, background: C.bg, border: `1px solid ${C.border}` }}>
+                            <div style={{ fontFamily: "Inter, sans-serif", fontSize: 10.5, fontWeight: 700, color: C.textMuted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Risk Level</div>
+                            <RiskBadge risk={detectResult.riskLevel} />
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                            <span style={{ fontFamily: "Inter, sans-serif", fontSize: 12.5, color: C.textSec }}>Fraud probability</span>
+                            <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 700, color: (detectResult.fraudProbability ?? 0) > 70 ? C.red : (detectResult.fraudProbability ?? 0) > 40 ? C.amber : C.green }}>{detectResult.fraudProbability ?? 0}%</span>
+                          </div>
+                          <div style={{ height: 8, background: C.borderLight, borderRadius: 4, overflow: "hidden" }}>
+                            <div style={{ height: "100%", width: `${detectResult.fraudProbability ?? 0}%`, background: (detectResult.fraudProbability ?? 0) > 70 ? C.red : (detectResult.fraudProbability ?? 0) > 40 ? C.amber : C.green, borderRadius: 4, transition: "width 0.6s ease" }} />
+                          </div>
+                        </div>
+                        {detectResult.recommendation && (
+                          <div style={{ display: "flex", gap: 8, padding: "10px 12px", background: C.blueBg, borderRadius: 7, border: `1px solid ${C.blueBorder}` }}>
+                            <Info size={14} color={C.blue} style={{ flexShrink: 0, marginTop: 1 }} />
+                            <p style={{ fontFamily: "Inter, sans-serif", fontSize: 12.5, color: C.textSec, margin: 0, lineHeight: 1.55 }}>{detectResult.recommendation}</p>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div>
+                        <p style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: C.textMuted, margin: "0 0 10px" }}>No analysis available.</p>
+                        <Btn variant="primary" size="sm" onClick={runDetection}>Run Analysis</Btn>
+                      </div>
+                    )}
+                  </Section>
+                )}
+              </div>
             </div>
+
+            {/* ── GradCAM full-width section (admin + image required) ── */}
+            {isAdmin && claim.imageUrl && (
+              <div style={{ marginTop: 24, paddingTop: 22, borderTop: `1px solid ${C.borderLight}` }}>
+                <p style={{ fontFamily: "Inter, sans-serif", fontSize: 10.5, fontWeight: 800, color: C.textMuted, margin: "0 0 12px", textTransform: "uppercase", letterSpacing: "0.1em" }}>Explainability (Grad-CAM)</p>
+                <GradCamPanel claimId={claimId} hasImage={!!claim.imageUrl} />
+              </div>
+            )}
           </div>
         ) : null}
         <style>{`@media(max-width:640px){.detail-grid{grid-template-columns:1fr!important}}`}</style>
@@ -657,7 +856,9 @@ function ClaimDetailModal({ claimId, onClose, onStatusChanged, isAdmin }) {
       {confirmAction && (
         <ConfirmDialog open title={`${confirmAction} this claim?`}
           message={`Are you sure you want to mark claim ${claim?.ref} as ${confirmAction.toLowerCase()}? This will update the claim status immediately.`}
-          confirmLabel={confirmAction} loading={!!actionLoading}
+          confirmLabel={confirmAction}
+          variant={confirmAction === "Approved" ? "success" : "danger"}
+          loading={!!actionLoading}
           onClose={() => setConfirmAction(null)} onConfirm={() => act(confirmAction)} />
       )}
 
@@ -943,6 +1144,7 @@ function AdminApp({ user, onLogout }) {
     try {
       const claims = await api.getPendingClaims();
       const withDetection = await Promise.all(claims.map(async c => {
+        if (c.isFraud !== null && c.isFraud !== undefined) return c;
         try { return { ...c, ...await api.runFraudDetection(c.id) }; }
         catch { return c; }
       }));
@@ -964,9 +1166,8 @@ function AdminApp({ user, onLogout }) {
 
   const searchFilter = c => !search || c.ref.toLowerCase().includes(search.toLowerCase()) || (c.policyNumber || "").toLowerCase().includes(search.toLowerCase()) || (c.claimantName || "").toLowerCase().includes(search.toLowerCase());
 
-  const redClaims = pending.filter(c => c.isFraud === true && searchFilter(c));
+  const redClaims = pending.filter(c => c.isFraud !== false && searchFilter(c));
   const greenClaims = pending.filter(c => c.isFraud === false && searchFilter(c));
-  const pendingClaims = pending.filter(c => c.isFraud === null && searchFilter(c));
 
   const approveAllGreen = async () => {
     setApprovingAll(true); setConfirmApproveAll(false);
@@ -1051,7 +1252,7 @@ function AdminApp({ user, onLogout }) {
               {/* Stats */}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 14 }} className="review-stats">
                 <StatCard label="Total Pending" value={pending.length} icon={Clock} accent={C.navy} />
-                <StatCard label="Fraud Flagged" value={pending.filter(c => c.isFraud === true).length} icon={ShieldAlert} color={C.red} />
+                <StatCard label="Fraud Flagged / Review" value={pending.filter(c => c.isFraud !== false).length} icon={ShieldAlert} color={C.red} />
                 <StatCard label="Likely Genuine" value={pending.filter(c => c.isFraud === false).length} icon={ShieldCheck} color={C.green} />
               </div>
 
@@ -1072,7 +1273,7 @@ function AdminApp({ user, onLogout }) {
                 </div>
               ) : (
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }} className="flag-grid">
-                  <FlagColumn tone="fraud" title="Fraud Flagged" subtitle="High fraud probability" claims={redClaims} onReview={id => setDetailId(id)} />
+                  <FlagColumn tone="fraud" title="Fraud Flagged / Review Needed" subtitle="High fraud probability or pending review" claims={redClaims} onReview={id => setDetailId(id)} />
                   <FlagColumn tone="genuine" title="Likely Genuine" subtitle="Low fraud probability" claims={greenClaims} onReview={id => setDetailId(id)} onApproveAll={() => setConfirmApproveAll(true)} approvingAll={approvingAll} />
                 </div>
               )}

@@ -13,6 +13,7 @@ _model = None
 _device = None
 _class_to_idx = None
 _inference_transform = None
+_target_layers = None
 
 IMG_SIZE = 384
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
@@ -29,7 +30,7 @@ def _build_transform():
 
 
 def load_model(model_path: str):
-    global _model, _device, _class_to_idx, _inference_transform
+    global _model, _device, _class_to_idx, _inference_transform, _target_layers
 
     import torch
 
@@ -46,18 +47,47 @@ def load_model(model_path: str):
     _model.to(_device)
     _model.eval()
     _inference_transform = _build_transform()
+    _target_layers = [_model.features[-1]]
 
     logger.info("Model loaded. class_to_idx=%s", _class_to_idx)
 
 
+def _ensure_model_loaded():
+    global _model
+    if _model is not None:
+        return
+    possible_paths = [
+        os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "model", "weights", "best_efficientnetv2_s.pth"),
+        os.path.join(os.path.dirname(os.path.dirname(__file__)), "model", "weights", "best_efficientnetv2_s.pth"),
+        "backend/model/weights/best_efficientnetv2_s.pth",
+        "model/weights/best_efficientnetv2_s.pth",
+    ]
+    for p in possible_paths:
+        abs_p = os.path.abspath(p)
+        if os.path.exists(abs_p) and os.path.getsize(abs_p) > 1000:
+            try:
+                load_model(abs_p)
+                return
+            except Exception as e:
+                logger.error("Auto-load failed for %s: %s", abs_p, e)
+
+
 def is_model_loaded() -> bool:
+    _ensure_model_loaded()
     return _model is not None
+
+
+def get_model_and_layers():
+    """Return (model, target_layers, device, class_to_idx) for GradCAM usage."""
+    _ensure_model_loaded()
+    return _model, _target_layers, _device, _class_to_idx
 
 
 def predict(image, config) -> dict:
     import torch
     import torch.nn.functional as F
 
+    _ensure_model_loaded()
     if _model is None:
         raise RuntimeError("Model is not loaded.")
 

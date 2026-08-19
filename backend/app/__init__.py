@@ -47,7 +47,7 @@ def _init_extensions(app):
     cors.init_app(app, resources={
         r"/api/*": {
             "origins": app.config["ALLOWED_ORIGINS"],
-            "methods": ["GET", "POST", "PATCH", "OPTIONS"],
+            "methods": ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
             "allow_headers": ["Content-Type", "Authorization", "X-Request-ID"],
             "expose_headers": ["X-Request-ID"],
             "supports_credentials": True,

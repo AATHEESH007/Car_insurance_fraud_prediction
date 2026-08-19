@@ -1,3 +1,4 @@
+# Flask Web Framework & Extensions
 flask==3.1.0
 flask-sqlalchemy==3.1.1
 flask-migrate==4.0.7
@@ -5,14 +6,27 @@ flask-jwt-extended==4.7.1
 flask-limiter==3.8.0
 flask-cors==5.0.0
 flask-swagger-ui==4.11.1
+
+# Validation & Serialization
 marshmallow==3.23.1
+
+# Authentication & Security
 argon2-cffi==23.1.0
 python-dotenv==1.0.1
+
+# Production Server & Database
 gunicorn==23.0.0
 psycopg2-binary==2.9.10
+
+# Computer Vision & Deep Learning
 pillow==11.1.0
 torch==2.4.1
 torchvision==0.19.1
+grad-cam==1.5.4
+scikit-learn>=1.3.0
+numpy>=1.24.0
+
+# Testing & Code Coverage
 pytest==8.3.4
 pytest-flask==1.3.0
 pytest-cov==6.0.0
