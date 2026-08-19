@@ -15,6 +15,10 @@ env/
 *.sqlite
 backend/uploads/
 
+# Dataset (raw images - do not commit)
+backend/Data/train/
+backend/Data/test/
+
 
 # Node
 node_modules/
