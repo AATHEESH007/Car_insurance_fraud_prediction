@@ -1,0 +1,33 @@
+services:
+  - type: web
+    name: claimseal-backend
+    env: python
+    region: oregon
+    plan: free
+    rootDir: backend
+    buildCommand: >
+      pip install torch==2.4.1 torchvision==0.19.1
+      --index-url https://download.pytorch.org/whl/cpu &&
+      pip install -r requirements.txt &&
+      python download_weights.py &&
+      flask db upgrade
+    startCommand: gunicorn -c gunicorn.conf.py run:app
+    envVars:
+      - key: FLASK_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false          # paste your Neon connection string in Render dashboard
+      - key: SECRET_KEY
+        generateValue: true
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: ALLOWED_ORIGINS
+        sync: false          # set to your Vercel frontend URL, e.g. https://claimseal.vercel.app
+      - key: MODEL_PATH
+        value: model/weights/best_efficientnetv2_s.pth
+      - key: WEIGHTS_URL
+        sync: false          # URL to download model weights (e.g. from Hugging Face Hub or GitHub Releases)
+      - key: FORWARDED_ALLOW_IPS
+        value: "*"
+      - key: UPLOAD_FOLDER
+        value: uploads
